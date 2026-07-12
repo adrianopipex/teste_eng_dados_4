@@ -1,0 +1,28 @@
+Lendo arquivo: ..\datasets\clientes_sinteticos.csv
+--5 clientes que mais sofreram atualizações na base:
++-------------+------------------+
+| cod_cliente | qtd_atualizacoes |
++-------------+------------------+
+| 878         | 5                |
+| 479         | 5                |
+| 396         | 5                |
+| 855         | 4                |
+| 516         | 3                |
++-------------+------------------+
+
+--Média de idade dos clientes:
++---------+
+| avg_age |
++---------+
+| 51.17   |
++---------+
+
+Resumo objetivo
+
+O que foi feito: li a tabela de clientes e contei quantas vezes cada cliente aparece — cada linha representa uma atualização.
+Top 5: os cinco clientes com mais atualizações são 878 (5), 479 (5), 396 (5), 855 (4) e 516 (3).
+
+Média de idade: converti as datas de nascimento em idades (anos) e calculei a média: 51.17 anos.
+Pressupostos: cada registro = 1 atualização; datas inválidas foram ignoradas no cálculo da idade.
+
+Observação: a média usa a data de execução (pode mudar com o tempo).

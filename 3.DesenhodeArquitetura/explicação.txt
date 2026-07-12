@@ -1,0 +1,199 @@
+ARQUITETURA AWS - CDC MYSQL PARA DATA LAKE MEDALHAO (BRONZE/SILVER/GOLD)
+COM GOVERNANCA DE ACESSO A NIVEL DE USUARIO
+
+Explicação detalhada do desenho de arquitetura
+
+===================================================================
+1. VISAO GERAL
+===================================================================
+O objetivo da arquitetura e capturar, de forma continua, as alterações
+feitas na base de cadastro de clientes que roda em um banco MySQL, e
+persistir esses dados em um data lake na AWS organizado segundo a
+arquitetura medalhão (bronze, silver e gold). Além do armazenamento,
+o desenho contempla uma camada de governança de acesso a nível de
+usuário, garantindo que cada pessoa ou aplicação consumidora enxergue
+apenas os dados aos quais tem permissão.
+
+O fluxo de ponta a ponta segue a sequencia: MySQL -> captura de CDC ->
+zona bronze -> processamento e limpeza -> zona silver -> processamento
+de regras de negocio -> zona gold -> catalogação -> governança de
+acesso -> camadas de consumo/analytics. Paralelamente, existem
+componentes transversais de orquestração, segurança e observabilidade
+que sustentam todo o pipeline.
+
+===================================================================
+2. FONTE DE DADOS E INGESTAO CDC
+===================================================================
+
+2.1 Amazon RDS for MySQL (Cadastro de Clientes)
+E a origem dos dados, o banco transacional onde o sistema de cadastro
+grava e atualiza as informações dos clientes. Optou-se por manter o
+MySQL como esta (RDS gerenciado), sem a necessidade de alterar a
+aplicação de origem, pois o CDC e feito lendo o binlog do banco.
+
+2.2 AWS DMS - Database Migration Service (Tarefa de CDC continuo)
+E o coração da captura de mudanças. O DMS foi escolhido por ser um
+serviço nativo da AWS, totalmente gerenciado, que le o binary log
+(binlog) do MySQL e replica em tempo quase real cada operação de
+inserção, atualização e exclusao (insert/update/delete), sem exigir
+consultas repetidas (polling) na tabela de origem nem sobrecarregar o
+banco transacional. Isso evita impacto de performance no sistema de
+cadastro, que continua atendendo aos usuários finais normalmente,
+enquanto o DMS entrega as mudanças de forma incremental para o data
+lake.
+
+2.3 AWS Secrets Manager (Credenciais do MySQL)
+As credenciais de acesso ao banco MySQL usadas pela tarefa de DMS são
+armazenadas e rotacionadas pelo Secrets Manager, em vez de ficarem
+gravadas em texto plano na configuração do DMS. Isso reduz o risco de
+vazamento de senha e permite rotação automática sem precisar recriar
+a tarefa de replicação.
+
+===================================================================
+3. DATA LAKE - ARQUITETURA MEDALHAO (AMAZON S3 + AWS GLUE)
+===================================================================
+Todo o data lake e construído sobre o Amazon S3, por ser um
+armazenamento de objetos durável, barato e que se integra nativamente
+com o restante do ecossistema analítico da AWS (Glue, Athena, Lake
+Formation, Redshift Spectrum). As três camadas ficam em prefixos ou
+buckets distintos para que cada uma tenha ciclo de vida, formato e
+regras de acesso próprios.
+
+3.1 Camada Bronze - Amazon S3 (dados brutos, formato original)
+O DMS grava aqui os dados exatamente como chegam do MySQL, sem
+transformação, normalmente em arquivos Parquet ou JSON particionados
+por data/hora de ingestão. O objetivo da bronze e manter uma copia
+fiel e auditavel do dado de origem, permitindo reprocessamento futuro
+caso alguma regra de negocio mude ou algum erro seja identificado nas
+camadas seguintes, sem precisar consultar o banco MySQL novamente.
+
+3.2 AWS Glue Job - Bronze para Silver (limpeza, dedup, schema)
+Um job Spark serverless do AWS Glue le os dados da bronze e aplica:
+validação e enforcamento de schema (tipos de dados corretos),
+deduplicação de registros (uma vez que o CDC pode gerar eventos
+repetidos ou fora de ordem), tratamento de nulos e padronização de
+campos (por exemplo, formatos de data, capitalização de texto).
+Optou-se pelo Glue por ser um serviço gerenciado (sem necessidade de
+provisionar cluster), que escala automaticamente conforme o volume de
+dados e cobra por uso.
+
+3.3 Camada Silver - Amazon S3 (dados conformados, Parquet)
+Guarda a versão limpa, deduplicada e com schema consistente dos dados
+de cadastro, no formato colunar Parquet, que e mais eficiente para
+leitura analítica do que o formato bruto. E o ponto de partida para
+qualquer transformação de regra de negocio mais complexa.
+
+3.4 AWS Glue Job - Silver para Gold (agregações, regras de negocio)
+Um segundo job Glue le a silver e aplica logica de negocio: joins com
+outras entidades (quando existirem), cálculos de indicadores,
+agregações e modelagem dimensional voltada para consumo por times de
+negocio (por exemplo, uma tabela única de clientes enriquecida, ou
+visões agregadas por região/segmento).
+
+3.5 Camada Gold - Amazon S3 (dados curados para negocio)
+Contem os dados prontos para consumo direto por ferramentas de BI e
+analises, ja no formato e granularidade que o negocio espera. Ao
+separar bronze, silver e gold, garante-se que erros de processamento
+não corrompam a fonte original (bronze) e que times de negocio nunca
+precisem lidar diretamente com dados brutos ou parcialmente tratados.
+
+3.6 AWS Glue Data Catalog (crawlers / metadados)
+Crawlers do Glue varrem periodicamente as três camadas do S3 e
+mantem um catalogo central de metadados (schemas, partições,
+localização dos arquivos). Esse catalogo e o que permite que serviços
+como Athena, Redshift Spectrum e o próprio Lake Formation enxerguem
+os dados no S3 como se fossem tabelas de um banco relacional, sem
+duplicar os dados.
+
+===================================================================
+4. GOVERNANCA DE ACESSO
+===================================================================
+
+4.1 AWS Lake Formation (governança: banco / tabela / coluna / linha)
+E o serviço responsável por centralizar as regras de quem pode
+acessar o que dentro do data lake. Foi escolhido especificamente por
+permitir permissionamento granular (a nível de base de dados, tabela,
+coluna e ate linha), algo que politicas de bucket do S3 sozinhas nao
+conseguem oferecer de forma pratica. Isso atende diretamente ao
+requisito de "governança de acesso a nível de usuário": por exemplo,
+um analista de marketing pode ver apenas colunas não sensíveis do
+cadastro de clientes, enquanto o time de dados pode ter acesso
+completo.
+
+4.2 AWS IAM (Usuários, Grupos e Roles)
+Define a identidade de cada usuário, grupo ou aplicação que vai
+consumir os dados. O Lake Formation usa essas identidades do IAM como
+base para aplicar as permissões configuradas, criando a ponte entre
+"quem e o usuário" (IAM) e "o que ele pode ver" (Lake Formation).
+
+4.3 Fluxo de acesso governado
+Quando uma ferramenta de consumo (Athena, Redshift Spectrum ou
+QuickSight) tenta ler uma tabela do catalogo, a consulta passa pelo
+Lake Formation, que verifica as permissões do usuário/role antes de
+liberar o acesso aos dados no S3. Dessa forma, a segurança fica
+centralizada em um único lugar, em vez de ser replicada em cada
+ferramenta de consumo separadamente.
+
+===================================================================
+5. CAMADA DE CONSUMO / ANALYTICS
+===================================================================
+
+5.1 Amazon Athena
+Permite consultas SQL ad-hoc diretamente sobre os dados do S3 (via
+catalogo do Glue), sem necessidade de mover os dados para outro
+banco. Ideal para analises pontuais e exploração de dados pela
+camada gold (ou silver, quando necessário).
+
+5.2 Amazon Redshift Spectrum
+Permite que o Amazon Redshift consulte diretamente os dados no S3,
+unindo tabelas do data lake com tabelas já existentes no data
+warehouse, sem duplicar dados. Usado quando há necessidade de
+integrar o data lake com cargas analíticas já existentes no Redshift.
+
+5.3 Amazon QuickSight
+Ferramenta de BI usada para criar dashboards e visualizações para
+usuários de negocio, consumindo os dados curados da camada gold
+através do Athena ou diretamente via conectores nativos.
+
+===================================================================
+6. ORQUESTRACAO, SEGURANCA E OBSERVABILIDADE
+===================================================================
+
+6.1 AWS Step Functions + Amazon EventBridge (orquestração)
+Coordenam a execucao ordenada dos jobs Glue (bronze->silver e
+silver->gold), garantindo que cada etapa só comece depois que a
+anterior termine com sucesso, além de permitir agendamento periódico
+ou acionamento por eventos (por exemplo, chegada de novos arquivos na
+bronze).
+
+6.2 AWS KMS (criptografia em repouso)
+Garante que todos os dados armazenados no S3 (bronze, silver e gold)
+estejam criptografados em repouso, protegendo as informações de
+clientes mesmo em caso de acesso indevido ao armazenamento físico ou
+a uma copia dos arquivos.
+
+6.3 AWS CloudTrail (auditoria de acessos)
+Registra todas as chamadas de API feitas aos serviços da AWS,
+incluindo as decisões de permissão tomadas pelo Lake Formation e pelo
+IAM. Isso cria uma trilha de auditoria de quem acessou o que e quando,
+essencial para conformidade e investigação de incidentes.
+
+6.4 Amazon CloudWatch (monitoramento/alarmes)
+Monitora a saude da tarefa de CDC no DMS e dos jobs do Glue,
+disparando alarmes em caso de falha, atraso ou erro, permitindo que a
+equipe de dados reaja rapidamente a problemas no pipeline antes que
+afetem os usuários finais dos dados.
+
+===================================================================
+7. POR QUE ESSA ARQUITETURA
+===================================================================
+A separação em bronze, silver e gold garante rastreabilidade (sempre
+e possível voltar ao dado bruto), qualidade incremental (cada camada
+adiciona um nível de tratamento) e performance (a camada gold e
+pequena e otimizada para consumo, enquanto a bronze preserva o
+histórico completo). O uso de CDC via DMS evita impacto no banco de
+produção e permite ingestão quase em tempo real. Por fim, a
+governança centralizada no Lake Formation, apoiada pelo IAM, cumpre o
+requisito de controle de acesso a nível de usuário de forma escalável,
+sem exigir que cada ferramenta de consumo implemente sua própria
+logica de permissão.
