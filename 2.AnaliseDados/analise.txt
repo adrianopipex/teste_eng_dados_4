@@ -25,4 +25,4 @@ Top 5: os cinco clientes com mais atualizações são 878 (5), 479 (5), 396 (5),
 Média de idade: converti as datas de nascimento em idades (anos) e calculei a média: 51.17 anos.
 Pressupostos: cada registro = 1 atualização; datas inválidas foram ignoradas no cálculo da idade.
 
-Observação: a média usa a data de execução (pode mudar com o tempo).
+Observação: a média usa a data de execução (pode mudar com o tempo)

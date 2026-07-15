@@ -17,7 +17,7 @@ from pyspark.sql.window import Window
 
 
 # ---------------------------------------------------------------------------
-# Schema do dataset de origem
+# Schema do dataset de origem 
 # ---------------------------------------------------------------------------
 SCHEMA_CLIENTES = StructType([
     StructField("cod_cliente", IntegerType(), nullable=False),

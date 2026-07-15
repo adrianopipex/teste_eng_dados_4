@@ -18,7 +18,7 @@ Data de execução: 2026-07-12 16:48:40
 - anomesdia: 0 registros ausentes (0.0%)
 
 3. Consistência de chave e duplicidade
-- Clientes duplicados (cod_cliente): 76
+- Clientes duplicados (cod_cliente):76
 
 4. Validações de formato
 - Telefones no formato esperado (NN)NNNNN-NNNN: 459 válidos, 41 inválidos

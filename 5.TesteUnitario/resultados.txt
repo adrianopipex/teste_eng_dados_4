@@ -1,0 +1,11 @@
+test_count_missing_fields_reports_expected_required_fields (test_script_data_quality.ScriptDataQualityTests.test_count_missing_fields_reports_expected_required_fields) ... ok
+test_infer_anomesdia_uses_update_date_or_returns_none (test_script_data_quality.ScriptDataQualityTests.test_infer_anomesdia_uses_update_date_or_returns_none) ... ok
+test_normalize_phone_uses_preferred_column_and_falls_back (test_script_data_quality.ScriptDataQualityTests.test_normalize_phone_uses_preferred_column_and_falls_back) ... ok
+test_parse_date_returns_date_for_valid_string (test_script_data_quality.ScriptDataQualityTests.test_parse_date_returns_date_for_valid_string) ... ok
+test_parse_date_returns_none_for_empty_or_invalid_values (test_script_data_quality.ScriptDataQualityTests.test_parse_date_returns_none_for_empty_or_invalid_values) ... ok
+test_read_records_raises_file_not_found_for_missing_file (test_script_data_quality.ScriptDataQualityTests.test_read_records_raises_file_not_found_for_missing_file) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.000s
+
+OK
